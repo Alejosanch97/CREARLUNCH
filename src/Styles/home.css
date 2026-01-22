@@ -492,3 +492,111 @@ body {
         right: 25px;
     }
 }
+
+/* =========================================
+   RESPONSIVIDAD PRECISA PARA CELULARES
+   ========================================= */
+@media (max-width: 600px) {
+    /* Ajuste de Header: Título arriba, botones en 2 columnas abajo */
+    .main-header {
+        display: grid;
+        grid-template-areas: 
+            "top top"
+            "actions actions";
+        gap: 15px;
+    }
+
+    .header-top {
+        grid-area: top;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .main-header h1 { 
+        font-size: 1.25rem; 
+        letter-spacing: -0.5px;
+    }
+
+    .header-actions {
+        grid-area: actions;
+        display: grid;
+        grid-template-columns: 1fr 1fr; /* Botones mitad y mitad */
+        gap: 10px;
+        width: 100%;
+    }
+
+    .btn-report, .btn-add-student {
+        padding: 12px 5px;
+        font-size: 0.85rem;
+        border-radius: 12px;
+        justify-content: center;
+    }
+
+    /* Tarjetas de Estudiante: Mejor espacio para nombres largos */
+    .student-card {
+        flex-direction: column; /* Apila info arriba y botones abajo */
+        align-items: flex-start;
+        padding: 15px;
+        gap: 12px;
+    }
+
+    .student-info {
+        max-width: 100%;
+        width: 100%;
+    }
+
+    .student-name { 
+        font-size: 0.95rem; 
+        display: block;
+        white-space: normal; /* Permite que el nombre baje de renglón si es muy largo */
+    }
+
+    .card-actions {
+        width: 100%;
+        display: flex;
+        gap: 8px;
+    }
+
+    /* Botón de Almorzar más grande y fácil de tocar */
+    .btn-action.check {
+        flex: 3; 
+        padding: 12px;
+        font-size: 0.85rem;
+    }
+
+    /* Botón de inasistencia (🚫) más compacto */
+    .btn-action.absent {
+        flex: 1;
+        padding: 12px;
+    }
+
+    /* Tabs: Texto más pequeño para que no se corten */
+    .tab-btn {
+        font-size: 0.75rem;
+        padding: 10px 4px;
+    }
+
+    /* Sincronización: Centrada y tipo "píldora" en la parte inferior */
+    .sync-badge-floating {
+        bottom: 15px;
+        left: 15px;
+        right: 15px;
+        width: auto;
+        justify-content: center;
+        padding: 10px;
+        font-size: 0.8rem;
+    }
+}
+
+/* Ajustes específicos para pantallas muy pequeñas (iPhone SE / Mini) */
+@media (max-width: 360px) {
+    .main-header h1 { font-size: 1.1rem; }
+    .btn-report, .btn-add-student { font-size: 0.75rem; }
+}
+
+/* Ajustes para Tablets */
+@media (min-width: 601px) and (max-width: 900px) {
+    .app-wrapper { padding: 25px; }
+    .sync-badge-floating { bottom: 25px; right: 25px; }
+}
