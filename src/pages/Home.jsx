@@ -19,30 +19,37 @@ export const Home = () => {
     const [shuffledEmojis, setShuffledEmojis] = useState([]);
     const [userSequence, setUserSequence] = useState([]);
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
-    
-    // Nuevo estado para el modal de reporte
     const [showReport, setShowReport] = useState(false);
 
     const correctSequence = ["🏢", "👧", "😊", "🍕"];
     const [formData, setFormData] = useState({ id: '', grado: '', nombre: '', observacion: '' });
 
-    // --- LÓGICA DE REPORTE POR GRADO ---
-    const getGradosReport = () => {
-        const report = GRADOS_OPTIONS.map(grado => {
-            const estudiantesGrado = students.filter(s => s.GRADO === grado);
-            const pendientes = estudiantesGrado.filter(s => {
-                const ef = s["ESTADO FINAL"] || s["ESTADO_FINAL"] || "";
-                return ef.trim() === "";
-            }).length;
-            const almorzados = estudiantesGrado.filter(s => {
-                const ef = s["ESTADO FINAL"] || s["ESTADO_FINAL"] || "";
-                return ef === "ALMORZANDO";
-            }).length;
+    // --- LÓGICA DE REPORTE AGRUPADO ---
+    const getCategorizedReport = () => {
+        const categories = [
+            { title: "🧸 PREESCOLAR", list: ["PRE JARDIN", "JARDIN", "TRANSICION"] },
+            { title: "📚 PRIMERO A TERCERO", list: ["PRIMERO", "SEGUNDO", "TERCERO"] },
+            { title: "🍎 CUARTO A QUINTO", list: ["CUARTO", "QUINTO"] },
+            { title: "🎓 BACHILLERATO", list: ["SEXTO", "SEPTIMO", "OCTAVO", "NOVENO", "DECIMO", "ONCE"] },
+            { title: "👥 OTROS", list: ["PERSONAL"] }
+        ];
 
-            return { grado, pendientes, almorzados };
-        });
-        // Retornar solo grados que tengan al menos 1 estudiante
-        return report.filter(r => (r.pendientes + r.almorzados) > 0);
+        return categories.map(cat => {
+            const items = cat.list.map(grado => {
+                const estudiantesGrado = students.filter(s => s.GRADO === grado);
+                const pendientes = estudiantesGrado.filter(s => {
+                    const ef = s["ESTADO FINAL"] || s["ESTADO_FINAL"] || "";
+                    return ef.trim() === "";
+                }).length;
+                const almorzados = estudiantesGrado.filter(s => {
+                    const ef = s["ESTADO FINAL"] || s["ESTADO_FINAL"] || "";
+                    return ef === "ALMORZANDO";
+                }).length;
+
+                return { grado, pendientes, almorzados, total: pendientes + almorzados };
+            }).filter(item => item.total > 0);
+            return { categoryTitle: cat.title, items };
+        }).filter(cat => cat.items.length > 0);
     };
 
     const generateNextId = (currentStudents) => {
@@ -80,18 +87,25 @@ export const Home = () => {
         setUserSequence([]);
     };
 
+    // --- FETCH DATA (MEJORADO PARA EVITAR DELAY) ---
     const fetchData = async () => {
+        // Si hay cambios enviándose, bloqueamos el refresco para que la UI no salte
         if (pendingSyncCount > 0) return; 
+        
         setLoading(true);
         try {
             const res = await fetch(API_URL);
             const data = await res.json();
-            const filtered = data.filter(s => {
-                const estadoRaw = s["ESTADO INICIAL"] || s["ESTADO_INICIAL"] || "";
-                const estado = String(estadoRaw).toUpperCase().trim();
-                return estado === "OK" || estado === "D";
+            
+            // Verificamos de nuevo antes de setear para evitar colisiones
+            setStudents(prev => {
+                if (pendingSyncCount > 0) return prev;
+                return data.filter(s => {
+                    const estadoRaw = s["ESTADO INICIAL"] || s["ESTADO_INICIAL"] || "";
+                    const estado = String(estadoRaw).toUpperCase().trim();
+                    return estado === "OK" || estado === "D";
+                });
             });
-            setStudents(filtered);
         } catch (err) {
             console.error("Error cargando datos", err);
         } finally {
@@ -99,18 +113,20 @@ export const Home = () => {
         }
     };
 
+    // --- ACCIÓN OPTIMISTA (INSTANTÁNEA) ---
     const handleAction = async (action, rowId, extra = {}) => {
+        // 1. Bloqueamos refrescos externos aumentand el contador
         setPendingSyncCount(prev => prev + 1);
 
+        // 2. CAMBIO LOCAL INMEDIATO
         setStudents(prevStudents => 
             prevStudents.map(s => {
                 if (s.rowId === rowId) {
                     let nuevoEstadoFinal = "";
                     let nuevaObservacion = s.OBSERVACION || "";
 
-                    if (action === 'mark_lunch') {
-                        nuevoEstadoFinal = "ALMORZANDO";
-                    } else if (action === 'mark_absent') {
+                    if (action === 'mark_lunch') nuevoEstadoFinal = "ALMORZANDO";
+                    else if (action === 'mark_absent') {
                         nuevoEstadoFinal = "INASISTENTE";
                         nuevaObservacion = extra.observacion || "";
                     } else if (action === 'undo_lunch') {
@@ -129,6 +145,7 @@ export const Home = () => {
             })
         );
 
+        // 3. ENVIAR AL EXCEL EN SEGUNDO PLANO
         try {
             await fetch(API_URL, {
                 method: 'POST',
@@ -138,9 +155,10 @@ export const Home = () => {
         } catch (err) {
             console.error("Error sincronizando", err);
         } finally {
+            // 4. Liberar bloqueo tras un pequeño delay de seguridad
             setPendingSyncCount(prev => {
                 const newValue = prev - 1;
-                if (newValue === 0) setTimeout(() => fetchData(), 1200);
+                if (newValue === 0) setTimeout(() => fetchData(), 3500);
                 return newValue;
             });
         }
@@ -173,7 +191,7 @@ export const Home = () => {
         } finally {
             setPendingSyncCount(prev => {
                 const newValue = prev - 1;
-                if (newValue === 0) setTimeout(() => fetchData(), 2000);
+                if (newValue === 0) setTimeout(() => fetchData(), 3500);
                 return newValue;
             });
         }
@@ -222,47 +240,51 @@ export const Home = () => {
     return (
         <div className="app-wrapper">
             <header className="main-header">
-                <div>
-                    <h1>Almuerzos 2026</h1>
-                    <button className="logout-link" onClick={handleLogout}>🚪 Cerrar Sesión</button>
+                <div className="header-top">
+                    <div>
+                        <h1>Almuerzos 2026</h1>
+                        <button className="logout-link" onClick={handleLogout}>🚪 Cerrar Sesión</button>
+                    </div>
                 </div>
                 <div className="header-actions">
                     <button className="btn-report" onClick={() => setShowReport(true)}>📊 REPORTE</button>
                     <button className="btn-add-student" onClick={() => setView(view === "form" ? "list" : "form")}>
-                        {view === "form" ? "VOLVER" : "+ ESTUDIANTE"}
+                        {view === "form" ? "⬅️ VOLVER" : "➕ ESTUDIANTE"}
                     </button>
                 </div>
             </header>
 
-            {/* POP-UP / MODAL DE REPORTE */}
             {showReport && (
                 <div className="modal-overlay" onClick={() => setShowReport(false)}>
                     <div className="modal-content" onClick={e => e.stopPropagation()}>
                         <div className="modal-header">
-                            <h3>Resumen por Grados</h3>
+                            <h3>Resumen Logístico</h3>
                             <button className="close-modal" onClick={() => setShowReport(false)}>×</button>
                         </div>
                         <div className="modal-body">
-                            <table className="report-table">
-                                <thead>
-                                    <tr>
-                                        <th>Grado</th>
-                                        <th>Pendientes</th>
-                                        <th>Listos</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {getGradosReport().map(r => (
-                                        <tr key={r.grado}>
-                                            <td><strong>{r.grado}</strong></td>
-                                            <td className={r.pendientes > 0 ? "text-red" : "text-gray"}>
-                                                {r.pendientes} 🍽️
-                                            </td>
-                                            <td className="text-green">{r.almorzados} ✅</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
+                            {getCategorizedReport().map(cat => (
+                                <div key={cat.categoryTitle} className="report-category">
+                                    <h4 className="category-title">{cat.categoryTitle}</h4>
+                                    <table className="report-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Grado</th>
+                                                <th>Faltan</th>
+                                                <th>Listos</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {cat.items.map(r => (
+                                                <tr key={r.grado}>
+                                                    <td><strong>{r.grado}</strong></td>
+                                                    <td className={r.pendientes > 0 ? "text-red" : "text-gray"}>{r.pendientes}</td>
+                                                    <td className="text-green">{r.almorzados}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 </div>
@@ -274,34 +296,14 @@ export const Home = () => {
                         <h3>Nuevo Registro</h3>
                         <label className="form-label">ID Sugerido:</label>
                         <input placeholder="ID" required readOnly value={formData.id} />
-
                         <label className="form-label">Grado:</label>
-                        <select 
-                            className="form-select"
-                            value={formData.grado} 
-                            onChange={e => setFormData({...formData, grado: e.target.value})}
-                            required
-                        >
-                            {GRADOS_OPTIONS.map(g => (
-                                <option key={g} value={g}>{g}</option>
-                            ))}
+                        <select className="form-select" value={formData.grado} onChange={e => setFormData({...formData, grado: e.target.value})} required>
+                            {GRADOS_OPTIONS.map(g => (<option key={g} value={g}>{g}</option>))}
                         </select>
-
                         <label className="form-label">Nombre Completo:</label>
-                        <input 
-                            placeholder="Nombre del estudiante" 
-                            required 
-                            value={formData.nombre} 
-                            onChange={e => setFormData({...formData, nombre: e.target.value})} 
-                        />
-
+                        <input placeholder="Nombre del estudiante" required value={formData.nombre} onChange={e => setFormData({...formData, nombre: e.target.value})} />
                         <label className="form-label">Observación Inicial:</label>
-                        <input 
-                            placeholder="Ej: Alérgico a la lactosa / Solo postre" 
-                            value={formData.observacion} 
-                            onChange={e => setFormData({...formData, observacion: e.target.value})} 
-                        />
-
+                        <input placeholder="Ej: Alérgico a la lactosa" value={formData.observacion} onChange={e => setFormData({...formData, observacion: e.target.value})} />
                         <button type="submit" className="btn-submit">GUARDAR</button>
                     </form>
                 </div>
@@ -318,22 +320,24 @@ export const Home = () => {
 
                     <div className="lists-container single-col">
                         {activeTab === "pendientes" ? (
-                            pendientes.map(s => (
-                                <div key={s.rowId} className="student-card">
-                                    <div className="student-info">
-                                        <span className="student-name">{s.NOMBRE}</span>
-                                        <span className="student-meta">{s.GRADO} (ID: {s.ID})</span>
-                                        {s.OBSERVACION && <div className="student-obs">📝 {s.OBSERVACION}</div>}
+                            pendientes.length > 0 ? (
+                                pendientes.map(s => (
+                                    <div key={s.rowId} className="student-card">
+                                        <div className="student-info">
+                                            <span className="student-name">{s.NOMBRE}</span>
+                                            <span className="student-meta">{s.GRADO} (ESTADO: {s["VALOR 1"] || s["VALOR_1"] || s.ID})</span>
+                                            {s.OBSERVACION && <div className="student-obs">📝 {s.OBSERVACION}</div>}
+                                        </div>
+                                        <div className="card-actions">
+                                            <button className="btn-action check" onClick={() => handleAction('mark_lunch', s.rowId)}>ALMORZAR ✅</button>
+                                            <button className="btn-action absent" onClick={() => {
+                                                const obs = prompt("Observación de Inasistencia:", s.OBSERVACION || "");
+                                                if(obs !== null) handleAction('mark_absent', s.rowId, { observacion: obs });
+                                            }}>🚫</button>
+                                        </div>
                                     </div>
-                                    <div className="card-actions">
-                                        <button className="btn-action check" onClick={() => handleAction('mark_lunch', s.rowId)}>ALMORZAR ✅</button>
-                                        <button className="btn-action absent" onClick={() => {
-                                            const obs = prompt("Observación de Inasistencia:", s.OBSERVACION || "");
-                                            if(obs !== null) handleAction('mark_absent', s.rowId, { observacion: obs });
-                                        }}>🚫</button>
-                                    </div>
-                                </div>
-                            ))
+                                ))
+                            ) : <div className="empty-msg">No hay pendientes 🎉</div>
                         ) : (
                             completados.map(s => (
                                 <div key={s.rowId} className="student-card completed">
@@ -344,10 +348,7 @@ export const Home = () => {
                                         </span>
                                     </div>
                                     <div className="card-actions">
-                                        <button className="btn-action undo" onClick={() => handleAction('undo_lunch', s.rowId)}>
-                                            ↩️ Corregir
-                                        </button>
-                                        <div className="status-icon">🟢</div>
+                                        <button className="btn-action undo" onClick={() => handleAction('undo_lunch', s.rowId)}>↩️ Corregir</button>
                                     </div>
                                 </div>
                             ))
@@ -357,7 +358,7 @@ export const Home = () => {
                     {pendingSyncCount > 0 && (
                         <div className="sync-badge-floating">
                             <div className="sync-spinner"></div>
-                            <span>Sincronizando {pendingSyncCount} cambios...</span>
+                            <span>Guardando en la nube...</span>
                         </div>
                     )}
                 </div>
