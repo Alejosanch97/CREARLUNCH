@@ -21,7 +21,11 @@ export const Home = () => {
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
     const [showReport, setShowReport] = useState(false);
 
-    const correctSequence = ["🏢", "👧", "😊", "🍕"];
+    // --- NUEVO: ESTADO PARA EL ROL Y NUEVA CLAVE ---
+    const [userRole, setUserRole] = useState("admin"); // 'admin' o 'llamado'
+    const correctSequence = ["🏢", "👧", "😊", "🍕"]; // Clave Admin
+    const logisticsSequence = ["🏢", "📚", "😊", "🍎"]; // Clave solo Llamado
+
     const [formData, setFormData] = useState({ id: '', grado: '', nombre: '', observacion: '' });
 
     // --- LÓGICA DE REPORTE AGRUPADO ---
@@ -85,19 +89,15 @@ export const Home = () => {
     const handleLogout = () => {
         setIsLoggedIn(false);
         setUserSequence([]);
+        setUserRole("admin");
     };
 
-    // --- FETCH DATA (MEJORADO PARA EVITAR DELAY) ---
     const fetchData = async () => {
-        // Si hay cambios enviándose, bloqueamos el refresco para que la UI no salte
         if (pendingSyncCount > 0) return; 
-        
         setLoading(true);
         try {
             const res = await fetch(API_URL);
             const data = await res.json();
-            
-            // Verificamos de nuevo antes de setear para evitar colisiones
             setStudents(prev => {
                 if (pendingSyncCount > 0) return prev;
                 return data.filter(s => {
@@ -113,18 +113,13 @@ export const Home = () => {
         }
     };
 
-    // --- ACCIÓN OPTIMISTA (INSTANTÁNEA) ---
     const handleAction = async (action, rowId, extra = {}) => {
-        // 1. Bloqueamos refrescos externos aumentand el contador
         setPendingSyncCount(prev => prev + 1);
-
-        // 2. CAMBIO LOCAL INMEDIATO
         setStudents(prevStudents => 
             prevStudents.map(s => {
                 if (s.rowId === rowId) {
                     let nuevoEstadoFinal = "";
                     let nuevaObservacion = s.OBSERVACION || "";
-
                     if (action === 'mark_lunch') nuevoEstadoFinal = "ALMORZANDO";
                     else if (action === 'mark_absent') {
                         nuevoEstadoFinal = "INASISTENTE";
@@ -133,19 +128,11 @@ export const Home = () => {
                         nuevoEstadoFinal = ""; 
                         nuevaObservacion = "";
                     }
-
-                    return {
-                        ...s,
-                        "ESTADO FINAL": nuevoEstadoFinal,
-                        ESTADO_FINAL: nuevoEstadoFinal,
-                        OBSERVACION: nuevaObservacion
-                    };
+                    return { ...s, "ESTADO FINAL": nuevoEstadoFinal, ESTADO_FINAL: nuevoEstadoFinal, OBSERVACION: nuevaObservacion };
                 }
                 return s;
             })
         );
-
-        // 3. ENVIAR AL EXCEL EN SEGUNDO PLANO
         try {
             await fetch(API_URL, {
                 method: 'POST',
@@ -155,7 +142,6 @@ export const Home = () => {
         } catch (err) {
             console.error("Error sincronizando", err);
         } finally {
-            // 4. Liberar bloqueo tras un pequeño delay de seguridad
             setPendingSyncCount(prev => {
                 const newValue = prev - 1;
                 if (newValue === 0) setTimeout(() => fetchData(), 3500);
@@ -167,19 +153,12 @@ export const Home = () => {
     const handleCreate = async (e) => {
         e.preventDefault();
         const newStudentLocal = {
-            rowId: Date.now(),
-            ID: formData.id,
-            GRADO: formData.grado,
-            NOMBRE: formData.nombre,
-            OBSERVACION: formData.observacion,
-            "ESTADO FINAL": "",
-            "ESTADO INICIAL": "D"
+            rowId: Date.now(), ID: formData.id, GRADO: formData.grado, NOMBRE: formData.nombre,
+            OBSERVACION: formData.observacion, "ESTADO FINAL": "", "ESTADO INICIAL": "D"
         };
-
         setStudents(prev => [...prev, newStudentLocal]);
         setPendingSyncCount(prev => prev + 1);
         setView("list");
-
         try {
             await fetch(API_URL, {
                 method: 'POST',
@@ -198,8 +177,15 @@ export const Home = () => {
     };
 
     const handleLogin = () => {
-        if (JSON.stringify(userSequence) === JSON.stringify(correctSequence)) {
+        const inputSeq = JSON.stringify(userSequence);
+        if (inputSeq === JSON.stringify(correctSequence)) {
+            setUserRole("admin");
             setIsLoggedIn(true);
+            fetchData();
+        } else if (inputSeq === JSON.stringify(logisticsSequence)) {
+            setUserRole("llamado");
+            setIsLoggedIn(true);
+            setActiveTab("pendientes");
             fetchData();
         } else {
             setUserSequence([]);
@@ -242,16 +228,19 @@ export const Home = () => {
             <header className="main-header">
                 <div className="header-top">
                     <div>
-                        <h1>Almuerzos 2026</h1>
+                        <h1>{userRole === "llamado" ? "Lista de Llamado" : "Almuerzos 2026"}</h1>
                         <button className="logout-link" onClick={handleLogout}>🚪 Cerrar Sesión</button>
                     </div>
                 </div>
-                <div className="header-actions">
-                    <button className="btn-report" onClick={() => setShowReport(true)}>📊 REPORTE</button>
-                    <button className="btn-add-student" onClick={() => setView(view === "form" ? "list" : "form")}>
-                        {view === "form" ? "⬅️ VOLVER" : "➕ ESTUDIANTE"}
-                    </button>
-                </div>
+                {/* Solo mostramos acciones de creación y reporte si es Admin */}
+                {userRole === "admin" && (
+                    <div className="header-actions">
+                        <button className="btn-report" onClick={() => setShowReport(true)}>📊 REPORTE</button>
+                        <button className="btn-add-student" onClick={() => setView(view === "form" ? "list" : "form")}>
+                            {view === "form" ? "⬅️ VOLVER" : "➕ ESTUDIANTE"}
+                        </button>
+                    </div>
+                )}
             </header>
 
             {showReport && (
@@ -267,11 +256,7 @@ export const Home = () => {
                                     <h4 className="category-title">{cat.categoryTitle}</h4>
                                     <table className="report-table">
                                         <thead>
-                                            <tr>
-                                                <th>Grado</th>
-                                                <th>Faltan</th>
-                                                <th>Listos</th>
-                                            </tr>
+                                            <tr><th>Grado</th><th>Faltan</th><th>Listos</th></tr>
                                         </thead>
                                         <tbody>
                                             {cat.items.map(r => (
@@ -309,14 +294,21 @@ export const Home = () => {
                 </div>
             ) : (
                 <div className="content-area">
-                    <div className="tabs-container">
-                        <button className={`tab-btn ${activeTab === "pendientes" ? "active red" : ""}`} onClick={() => setActiveTab("pendientes")}>
-                            PENDIENTES ({pendientes.length})
-                        </button>
-                        <button className={`tab-btn ${activeTab === "almorzando" ? "active green" : ""}`} onClick={() => setActiveTab("almorzando")}>
-                            ALMORZANDO ({completados.length})
-                        </button>
-                    </div>
+                    {/* Solo mostramos pestañas si es Admin. Si es Llamado, solo mostramos el título de pendientes */}
+                    {userRole === "admin" ? (
+                        <div className="tabs-container">
+                            <button className={`tab-btn ${activeTab === "pendientes" ? "active red" : ""}`} onClick={() => setActiveTab("pendientes")}>
+                                PENDIENTES ({pendientes.length})
+                            </button>
+                            <button className={`tab-btn ${activeTab === "almorzando" ? "active green" : ""}`} onClick={() => setActiveTab("almorzando")}>
+                                ALMORZANDO ({completados.length})
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="tabs-container">
+                            <h2 style={{padding: '10px', color: '#d32f2f'}}>ESTUDIANTES PENDIENTES ({pendientes.length})</h2>
+                        </div>
+                    )}
 
                     <div className="lists-container single-col">
                         {activeTab === "pendientes" ? (
@@ -325,20 +317,24 @@ export const Home = () => {
                                     <div key={s.rowId} className="student-card">
                                         <div className="student-info">
                                             <span className="student-name">{s.NOMBRE}</span>
-                                            <span className="student-meta">{s.GRADO} (ESTADO: {s["VALOR 1"] || s["VALOR_1"] || s.ID})</span>
+                                            <span className="student-meta">{s.GRADO}</span>
                                             {s.OBSERVACION && <div className="student-obs">📝 {s.OBSERVACION}</div>}
                                         </div>
-                                        <div className="card-actions">
-                                            <button className="btn-action check" onClick={() => handleAction('mark_lunch', s.rowId)}>ALMORZAR ✅</button>
-                                            <button className="btn-action absent" onClick={() => {
-                                                const obs = prompt("Observación de Inasistencia:", s.OBSERVACION || "");
-                                                if(obs !== null) handleAction('mark_absent', s.rowId, { observacion: obs });
-                                            }}>🚫</button>
-                                        </div>
+                                        {/* Solo mostramos los botones si es Admin */}
+                                        {userRole === "admin" && (
+                                            <div className="card-actions">
+                                                <button className="btn-action check" onClick={() => handleAction('mark_lunch', s.rowId)}>ALMORZAR ✅</button>
+                                                <button className="btn-action absent" onClick={() => {
+                                                    const obs = prompt("Observación de Inasistencia:", s.OBSERVACION || "");
+                                                    if(obs !== null) handleAction('mark_absent', s.rowId, { observacion: obs });
+                                                }}>🚫</button>
+                                            </div>
+                                        )}
                                     </div>
                                 ))
                             ) : <div className="empty-msg">No hay pendientes 🎉</div>
                         ) : (
+                            // Solo se renderiza si es Admin y cambia de pestaña
                             completados.map(s => (
                                 <div key={s.rowId} className="student-card completed">
                                     <div className="student-info">
