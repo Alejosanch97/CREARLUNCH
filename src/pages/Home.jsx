@@ -6,8 +6,9 @@ const API_URL = 'https://script.google.com/macros/s/AKfycbxD4jakTaR2OXuy8Wnl6Yp6
 const BASE_EMOJIS = ["🐶", "🍎", "🚗", "🍕", "🌈", "😊", "🏀", "🏢", "👧", "🍦", "📚", "🎸", "🦋", "🐈", "🍟", "🌻", "🚀", "💎", "🧸", "🔒"];
 
 const GRADOS_OPTIONS = [
-    "PRE JARDIN", "JARDIN", "TRANSICION", "PRIMERO", "SEGUNDO", "TERCERO", 
-    "CUARTO", "QUINTO", "SEXTO", "SEPTIMO", "OCTAVO", "NOVENO", "DECIMO", "ONCE", "PERSONAL"
+    "PRE JARDIN PJ", "JARDIN JA", "TRANSICION TR", "PRIMERO 101", "SEGUNDO 201", "TERCERO 301", 
+    "CUARTO 401", "QUINTO 501", "SEXTO 601", "SEPTIMO 701", "OCTAVO 801", "NOVENO 901", 
+    "DECIMO 1001", "ONCE 1101", "PERSONAL"
 ];
 
 export const Home = () => {
@@ -21,38 +22,90 @@ export const Home = () => {
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
     const [showReport, setShowReport] = useState(false);
 
-    // --- NUEVO: ESTADO PARA EL ROL Y NUEVA CLAVE ---
-    const [userRole, setUserRole] = useState("admin"); // 'admin' o 'llamado'
-    const correctSequence = ["🏢", "👧", "😊", "🍕"]; // Clave Admin
-    const logisticsSequence = ["🏢", "📚", "😊", "🍎"]; // Clave solo Llamado
+    const [userRole, setUserRole] = useState("admin"); 
+    const correctSequence = ["🏢", "👧", "😊", "🍕"]; 
+    const logisticsSequence = ["🏢", "📚", "😊", "🍎"]; 
 
-    const [formData, setFormData] = useState({ id: '', grado: '', nombre: '', observacion: '' });
+    const [formData, setFormData] = useState({ id: '', grado: GRADOS_OPTIONS[0], nombre: '', observacion: '' });
 
-    // --- LÓGICA DE REPORTE AGRUPADO ---
+    // --- LÓGICA DE REPORTE CON TOTALES POR CATEGORÍA ---
     const getCategorizedReport = () => {
         const categories = [
-            { title: "🧸 PREESCOLAR", list: ["PRE JARDIN", "JARDIN", "TRANSICION"] },
-            { title: "📚 PRIMERO A TERCERO", list: ["PRIMERO", "SEGUNDO", "TERCERO"] },
-            { title: "🍎 CUARTO A QUINTO", list: ["CUARTO", "QUINTO"] },
-            { title: "🎓 BACHILLERATO", list: ["SEXTO", "SEPTIMO", "OCTAVO", "NOVENO", "DECIMO", "ONCE"] },
-            { title: "👥 OTROS", list: ["PERSONAL"] }
+            { 
+                title: "🧸 PREESCOLAR", 
+                list: [
+                    { label: "PRE JARDIN", match: "PRE JARDIN PJ" },
+                    { label: "JARDIN", match: "JARDIN JA" },
+                    { label: "TRANSICION", match: "TRANSICION TR" }
+                ] 
+            },
+            { 
+                title: "📚 PRIMERO A TERCERO", 
+                list: [
+                    { label: "PRIMERO", match: "PRIMERO 101" },
+                    { label: "SEGUNDO", match: "SEGUNDO 201" },
+                    { label: "TERCERO", match: "TERCERO 301" }
+                ] 
+            },
+            { 
+                title: "🍎 CUARTO A QUINTO", 
+                list: [
+                    { label: "CUARTO", match: "CUARTO 401" },
+                    { label: "QUINTO", match: "QUINTO 501" }
+                ] 
+            },
+            { 
+                title: "🎓 BACHILLERATO", 
+                list: [
+                    { label: "SEXTO", match: "SEXTO 601" },
+                    { label: "SEPTIMO", match: "SEPTIMO 701" },
+                    { label: "OCTAVO", match: "OCTAVO 801" },
+                    { label: "NOVENO", match: "NOVENO 901" },
+                    { label: "DECIMO", match: "DECIMO 1001" },
+                    { label: "ONCE", match: "ONCE 1101" }
+                ] 
+            },
+            { 
+                title: "👥 OTROS", 
+                list: [
+                    { label: "PERSONAL", match: "PERSONAL" }
+                ] 
+            }
         ];
 
         return categories.map(cat => {
-            const items = cat.list.map(grado => {
-                const estudiantesGrado = students.filter(s => s.GRADO === grado);
+            let totalPendientes = 0;
+            let totalAlmorzados = 0;
+
+            const items = cat.list.map(gradoObj => {
+                const estudiantesGrado = students.filter(s => {
+                    const gradoExcel = String(s.GRADO || "").toUpperCase().trim();
+                    const gradoBuscado = gradoObj.match.toUpperCase().trim();
+                    return gradoExcel === gradoBuscado;
+                });
+                
                 const pendientes = estudiantesGrado.filter(s => {
-                    const ef = s["ESTADO FINAL"] || s["ESTADO_FINAL"] || "";
-                    return ef.trim() === "";
+                    const ef = String(s["ESTADO FINAL"] || s["ESTADO_FINAL"] || "").trim();
+                    return ef === "";
                 }).length;
+
                 const almorzados = estudiantesGrado.filter(s => {
-                    const ef = s["ESTADO FINAL"] || s["ESTADO_FINAL"] || "";
+                    const ef = String(s["ESTADO FINAL"] || s["ESTADO_FINAL"] || "").trim();
                     return ef === "ALMORZANDO";
                 }).length;
 
-                return { grado, pendientes, almorzados, total: pendientes + almorzados };
+                totalPendientes += pendientes;
+                totalAlmorzados += almorzados;
+
+                return { grado: gradoObj.label, pendientes, almorzados, total: estudiantesGrado.length };
             }).filter(item => item.total > 0);
-            return { categoryTitle: cat.title, items };
+
+            return { 
+                categoryTitle: cat.title, 
+                items, 
+                totalPendientes, 
+                totalAlmorzados 
+            };
         }).filter(cat => cat.items.length > 0);
     };
 
@@ -69,7 +122,7 @@ export const Home = () => {
     useEffect(() => {
         if (view === "form") {
             const nextId = generateNextId(students);
-            setFormData({ id: nextId, grado: GRADOS_OPTIONS[0], nombre: '', observacion: '' });
+            setFormData(prev => ({ ...prev, id: nextId, grado: GRADOS_OPTIONS[0] }));
         }
     }, [view, students]);
 
@@ -98,14 +151,11 @@ export const Home = () => {
         try {
             const res = await fetch(API_URL);
             const data = await res.json();
-            setStudents(prev => {
-                if (pendingSyncCount > 0) return prev;
-                return data.filter(s => {
-                    const estadoRaw = s["ESTADO INICIAL"] || s["ESTADO_INICIAL"] || "";
-                    const estado = String(estadoRaw).toUpperCase().trim();
-                    return estado === "OK" || estado === "D";
-                });
-            });
+            setStudents(data.filter(s => {
+                const estadoRaw = s["ESTADO INICIAL"] || s["ESTADO_INICIAL"] || "";
+                const estado = String(estadoRaw).toUpperCase().trim();
+                return estado === "OK" || estado === "D";
+            }));
         } catch (err) {
             console.error("Error cargando datos", err);
         } finally {
@@ -214,12 +264,12 @@ export const Home = () => {
     }
 
     const pendientes = students.filter(s => {
-        const ef = s["ESTADO FINAL"] || s["ESTADO_FINAL"] || "";
-        return ef.trim() === "";
+        const ef = String(s["ESTADO FINAL"] || s["ESTADO_FINAL"] || "").trim();
+        return ef === "";
     });
     
     const completados = students.filter(s => {
-        const ef = s["ESTADO FINAL"] || s["ESTADO_FINAL"] || "";
+        const ef = String(s["ESTADO FINAL"] || s["ESTADO_FINAL"] || "").trim();
         return ef === "ALMORZANDO" || ef === "INASISTENTE";
     });
 
@@ -232,7 +282,6 @@ export const Home = () => {
                         <button className="logout-link" onClick={handleLogout}>🚪 Cerrar Sesión</button>
                     </div>
                 </div>
-                {/* Solo mostramos acciones de creación y reporte si es Admin */}
                 {userRole === "admin" && (
                     <div className="header-actions">
                         <button className="btn-report" onClick={() => setShowReport(true)}>📊 REPORTE</button>
@@ -267,6 +316,14 @@ export const Home = () => {
                                                 </tr>
                                             ))}
                                         </tbody>
+                                        {/* FILA DE TOTALES POR CATEGORÍA */}
+                                        <tfoot className="report-tfoot">
+                                            <tr>
+                                                <td><strong>TOTAL</strong></td>
+                                                <td className="text-red"><strong>{cat.totalPendientes}</strong></td>
+                                                <td className="text-green"><strong>{cat.totalAlmorzados}</strong></td>
+                                            </tr>
+                                        </tfoot>
                                     </table>
                                 </div>
                             ))}
@@ -286,15 +343,14 @@ export const Home = () => {
                             {GRADOS_OPTIONS.map(g => (<option key={g} value={g}>{g}</option>))}
                         </select>
                         <label className="form-label">Nombre Completo:</label>
-                        <input placeholder="Nombre del estudiante" required value={formData.nombre} onChange={e => setFormData({...formData, nombre: e.target.value})} />
+                        <input placeholder="Nombre" required value={formData.nombre} onChange={e => setFormData({...formData, nombre: e.target.value})} />
                         <label className="form-label">Observación Inicial:</label>
-                        <input placeholder="Ej: Alérgico a la lactosa" value={formData.observacion} onChange={e => setFormData({...formData, observacion: e.target.value})} />
+                        <input placeholder="Ej: Alérgico" value={formData.observacion} onChange={e => setFormData({...formData, observacion: e.target.value})} />
                         <button type="submit" className="btn-submit">GUARDAR</button>
                     </form>
                 </div>
             ) : (
                 <div className="content-area">
-                    {/* Solo mostramos pestañas si es Admin. Si es Llamado, solo mostramos el título de pendientes */}
                     {userRole === "admin" ? (
                         <div className="tabs-container">
                             <button className={`tab-btn ${activeTab === "pendientes" ? "active red" : ""}`} onClick={() => setActiveTab("pendientes")}>
@@ -320,7 +376,6 @@ export const Home = () => {
                                             <span className="student-meta">{s.GRADO}</span>
                                             {s.OBSERVACION && <div className="student-obs">📝 {s.OBSERVACION}</div>}
                                         </div>
-                                        {/* Solo mostramos los botones si es Admin */}
                                         {userRole === "admin" && (
                                             <div className="card-actions">
                                                 <button className="btn-action check" onClick={() => handleAction('mark_lunch', s.rowId)}>ALMORZAR ✅</button>
@@ -334,7 +389,6 @@ export const Home = () => {
                                 ))
                             ) : <div className="empty-msg">No hay pendientes 🎉</div>
                         ) : (
-                            // Solo se renderiza si es Admin y cambia de pestaña
                             completados.map(s => (
                                 <div key={s.rowId} className="student-card completed">
                                     <div className="student-info">
@@ -350,16 +404,9 @@ export const Home = () => {
                             ))
                         )}
                     </div>
-
-                    {pendingSyncCount > 0 && (
-                        <div className="sync-badge-floating">
-                            <div className="sync-spinner"></div>
-                            <span>Guardando en la nube...</span>
-                        </div>
-                    )}
                 </div>
             )}
-            {loading && <div className="global-loader">Actualizando datos...</div>}
+            {loading && <div className="global-loader">Actualizando...</div>}
         </div>
     );
 };
