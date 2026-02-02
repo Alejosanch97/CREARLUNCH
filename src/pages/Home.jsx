@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import "../Styles/home.css"; 
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbxD4jakTaR2OXuy8Wnl6Yp6Nw24d3fmb0cLeNOkbTYzb7dNyZ0ywteSwc4qt7_IdOWV/exec';
@@ -21,6 +21,9 @@ export const Home = () => {
     const [userSequence, setUserSequence] = useState([]);
     const [pendingSyncCount, setPendingSyncCount] = useState(0);
     const [showReport, setShowReport] = useState(false);
+    const [actionLoading, setActionLoading] = useState(null); 
+
+    const isSyncingRef = useRef(0);
 
     const [userRole, setUserRole] = useState("admin"); 
     const correctSequence = ["🏢", "👧", "😊", "🍕"]; 
@@ -28,84 +31,37 @@ export const Home = () => {
 
     const [formData, setFormData] = useState({ id: '', grado: GRADOS_OPTIONS[0], nombre: '', observacion: '' });
 
-    // --- LÓGICA DE REPORTE CON TOTALES POR CATEGORÍA ---
     const getCategorizedReport = () => {
         const categories = [
-            { 
-                title: "🧸 PREESCOLAR", 
-                list: [
-                    { label: "PRE JARDIN", match: "PRE JARDIN PJ" },
-                    { label: "JARDIN", match: "JARDIN JA" },
-                    { label: "TRANSICION", match: "TRANSICION TR" }
-                ] 
-            },
-            { 
-                title: "📚 PRIMERO A TERCERO", 
-                list: [
-                    { label: "PRIMERO", match: "PRIMERO 101" },
-                    { label: "SEGUNDO", match: "SEGUNDO 201" },
-                    { label: "TERCERO", match: "TERCERO 301" }
-                ] 
-            },
-            { 
-                title: "🍎 CUARTO A QUINTO", 
-                list: [
-                    { label: "CUARTO", match: "CUARTO 401" },
-                    { label: "QUINTO", match: "QUINTO 501" }
-                ] 
-            },
-            { 
-                title: "🎓 BACHILLERATO", 
-                list: [
-                    { label: "SEXTO", match: "SEXTO 601" },
-                    { label: "SEPTIMO", match: "SEPTIMO 701" },
-                    { label: "OCTAVO", match: "OCTAVO 801" },
-                    { label: "NOVENO", match: "NOVENO 901" },
-                    { label: "DECIMO", match: "DECIMO 1001" },
-                    { label: "ONCE", match: "ONCE 1101" }
-                ] 
-            },
-            { 
-                title: "👥 OTROS", 
-                list: [
-                    { label: "PERSONAL", match: "PERSONAL" }
-                ] 
-            }
+            { title: "🧸 PREESCOLAR", list: [{ label: "PRE JARDIN", match: "PRE JARDIN PJ" }, { label: "JARDIN", match: "JARDIN JA" }, { label: "TRANSICION", match: "TRANSICION TR" }] },
+            { title: "📚 PRIMERO A TERCERO", list: [{ label: "PRIMERO", match: "PRIMERO 101" }, { label: "SEGUNDO", match: "SEGUNDO 201" }, { label: "TERCERO", match: "TERCERO 301" }] },
+            { title: "🍎 CUARTO A QUINTO", list: [{ label: "CUARTO", match: "CUARTO 401" }, { label: "QUINTO", match: "QUINTO 501" }] },
+            { title: "🎓 BACHILLERATO", list: [{ label: "SEXTO", match: "SEXTO 601" }, { label: "SEPTIMO", match: "SEPTIMO 701" }, { label: "OCTAVO", match: "OCTAVO 801" }, { label: "NOVENO", match: "NOVENO 901" }, { label: "DECIMO", match: "DECIMO 1001" }, { label: "ONCE", match: "ONCE 1101" }] },
+            { title: "👥 OTROS", list: [{ label: "PERSONAL", match: "PERSONAL" }] }
         ];
 
         return categories.map(cat => {
             let totalPendientes = 0;
             let totalAlmorzados = 0;
-
             const items = cat.list.map(gradoObj => {
                 const estudiantesGrado = students.filter(s => {
                     const gradoExcel = String(s.GRADO || "").toUpperCase().trim();
                     const gradoBuscado = gradoObj.match.toUpperCase().trim();
                     return gradoExcel === gradoBuscado;
                 });
-                
                 const pendientes = estudiantesGrado.filter(s => {
                     const ef = String(s["ESTADO FINAL"] || s["ESTADO_FINAL"] || "").trim();
                     return ef === "";
                 }).length;
-
                 const almorzados = estudiantesGrado.filter(s => {
                     const ef = String(s["ESTADO FINAL"] || s["ESTADO_FINAL"] || "").trim();
                     return ef === "ALMORZANDO";
                 }).length;
-
                 totalPendientes += pendientes;
                 totalAlmorzados += almorzados;
-
                 return { grado: gradoObj.label, pendientes, almorzados, total: estudiantesGrado.length };
             }).filter(item => item.total > 0);
-
-            return { 
-                categoryTitle: cat.title, 
-                items, 
-                totalPendientes, 
-                totalAlmorzados 
-            };
+            return { categoryTitle: cat.title, items, totalPendientes, totalAlmorzados };
         }).filter(cat => cat.items.length > 0);
     };
 
@@ -124,7 +80,11 @@ export const Home = () => {
             const nextId = generateNextId(students);
             setFormData(prev => ({ ...prev, id: nextId, grado: GRADOS_OPTIONS[0] }));
         }
-    }, [view, students]);
+    }, [view, students.length]);
+
+    useEffect(() => {
+        setShuffledEmojis(shuffle(BASE_EMOJIS));
+    }, []);
 
     const shuffle = (array) => {
         const newArray = [...array];
@@ -135,10 +95,6 @@ export const Home = () => {
         return newArray;
     };
 
-    useEffect(() => {
-        setShuffledEmojis(shuffle(BASE_EMOJIS));
-    }, []);
-
     const handleLogout = () => {
         setIsLoggedIn(false);
         setUserSequence([]);
@@ -146,16 +102,19 @@ export const Home = () => {
     };
 
     const fetchData = async () => {
-        if (pendingSyncCount > 0) return; 
+        if (isSyncingRef.current > 0) return; 
+        
         setLoading(true);
         try {
             const res = await fetch(API_URL);
             const data = await res.json();
-            setStudents(data.filter(s => {
-                const estadoRaw = s["ESTADO INICIAL"] || s["ESTADO_INICIAL"] || "";
-                const estado = String(estadoRaw).toUpperCase().trim();
-                return estado === "OK" || estado === "D";
-            }));
+            if (isSyncingRef.current === 0) {
+                setStudents(data.filter(s => {
+                    const estadoRaw = s["ESTADO INICIAL"] || s["ESTADO_INICIAL"] || "";
+                    const estado = String(estadoRaw).toUpperCase().trim();
+                    return estado === "OK" || estado === "D";
+                }));
+            }
         } catch (err) {
             console.error("Error cargando datos", err);
         } finally {
@@ -164,9 +123,20 @@ export const Home = () => {
     };
 
     const handleAction = async (action, rowId, extra = {}) => {
+        if (action === 'mark_lunch') {
+            setActionLoading(rowId);
+            setTimeout(() => setActionLoading(null), 800);
+        }
+
+        isSyncingRef.current += 1;
         setPendingSyncCount(prev => prev + 1);
-        setStudents(prevStudents => 
-            prevStudents.map(s => {
+        
+        // Cambio visual inmediato
+        setStudents(prevStudents => {
+            if (action === 'delete') {
+                return prevStudents.filter(s => s.rowId !== rowId);
+            }
+            return prevStudents.map(s => {
                 if (s.rowId === rowId) {
                     let nuevoEstadoFinal = "";
                     let nuevaObservacion = s.OBSERVACION || "";
@@ -181,48 +151,68 @@ export const Home = () => {
                     return { ...s, "ESTADO FINAL": nuevoEstadoFinal, ESTADO_FINAL: nuevoEstadoFinal, OBSERVACION: nuevaObservacion };
                 }
                 return s;
-            })
-        );
+            });
+        });
+
         try {
             await fetch(API_URL, {
                 method: 'POST',
                 mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action, rowId, ...extra })
             });
         } catch (err) {
             console.error("Error sincronizando", err);
         } finally {
-            setPendingSyncCount(prev => {
-                const newValue = prev - 1;
-                if (newValue === 0) setTimeout(() => fetchData(), 3500);
-                return newValue;
-            });
+            setTimeout(() => {
+                isSyncingRef.current -= 1;
+                setPendingSyncCount(prev => {
+                    const newValue = prev - 1;
+                    if (newValue === 0) fetchData();
+                    return newValue;
+                });
+            }, 4500);
         }
     };
 
     const handleCreate = async (e) => {
         e.preventDefault();
+        const currentForm = { ...formData };
+        
         const newStudentLocal = {
-            rowId: Date.now(), ID: formData.id, GRADO: formData.grado, NOMBRE: formData.nombre,
-            OBSERVACION: formData.observacion, "ESTADO FINAL": "", "ESTADO INICIAL": "D"
+            rowId: Date.now(), 
+            ID: currentForm.id, 
+            GRADO: currentForm.grado, 
+            NOMBRE: currentForm.nombre,
+            OBSERVACION: currentForm.observacion, 
+            "ESTADO FINAL": "", 
+            "ESTADO INICIAL": "D"
         };
+        
         setStudents(prev => [...prev, newStudentLocal]);
+        isSyncingRef.current += 1;
         setPendingSyncCount(prev => prev + 1);
         setView("list");
+        setFormData({ id: '', grado: GRADOS_OPTIONS[0], nombre: '', observacion: '' });
+
         try {
             await fetch(API_URL, {
                 method: 'POST',
                 mode: 'no-cors',
-                body: JSON.stringify({ action: 'create', ...formData })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'create', ...currentForm })
             });
         } catch (err) {
             console.error("Error al crear remotamente", err);
         } finally {
-            setPendingSyncCount(prev => {
-                const newValue = prev - 1;
-                if (newValue === 0) setTimeout(() => fetchData(), 3500);
-                return newValue;
-            });
+            setTimeout(() => {
+                isSyncingRef.current -= 1;
+                setPendingSyncCount(prev => {
+                    const newValue = prev - 1;
+                    if (newValue === 0) fetchData();
+                    return newValue;
+                });
+            }, 5000);
         }
     };
 
@@ -275,6 +265,13 @@ export const Home = () => {
 
     return (
         <div className="app-wrapper">
+            {pendingSyncCount > 0 && (
+                <div className="sync-badge-floating">
+                    <div className="sync-spinner"></div>
+                    Sincronizando {pendingSyncCount} cambios...
+                </div>
+            )}
+
             <header className="main-header">
                 <div className="header-top">
                     <div>
@@ -304,9 +301,7 @@ export const Home = () => {
                                 <div key={cat.categoryTitle} className="report-category">
                                     <h4 className="category-title">{cat.categoryTitle}</h4>
                                     <table className="report-table">
-                                        <thead>
-                                            <tr><th>Grado</th><th>Faltan</th><th>Listos</th></tr>
-                                        </thead>
+                                        <thead><tr><th>Grado</th><th>Faltan</th><th>Listos</th></tr></thead>
                                         <tbody>
                                             {cat.items.map(r => (
                                                 <tr key={r.grado}>
@@ -316,7 +311,6 @@ export const Home = () => {
                                                 </tr>
                                             ))}
                                         </tbody>
-                                        {/* FILA DE TOTALES POR CATEGORÍA */}
                                         <tfoot className="report-tfoot">
                                             <tr>
                                                 <td><strong>TOTAL</strong></td>
@@ -351,23 +345,23 @@ export const Home = () => {
                 </div>
             ) : (
                 <div className="content-area">
-                    {userRole === "admin" ? (
-                        <div className="tabs-container">
-                            <button className={`tab-btn ${activeTab === "pendientes" ? "active red" : ""}`} onClick={() => setActiveTab("pendientes")}>
-                                PENDIENTES ({pendientes.length})
-                            </button>
-                            <button className={`tab-btn ${activeTab === "almorzando" ? "active green" : ""}`} onClick={() => setActiveTab("almorzando")}>
-                                ALMORZANDO ({completados.length})
-                            </button>
-                        </div>
-                    ) : (
-                        <div className="tabs-container">
+                    <div className="tabs-container">
+                        {userRole === "admin" ? (
+                            <>
+                                <button className={`tab-btn ${activeTab === "pendientes" ? "active red" : ""}`} onClick={() => setActiveTab("pendientes")}>
+                                    PENDIENTES ({pendientes.length})
+                                </button>
+                                <button className={`tab-btn ${activeTab === "almorzando" ? "active green" : ""}`} onClick={() => setActiveTab("almorzando")}>
+                                    ALMORZANDO ({completados.length})
+                                </button>
+                            </>
+                        ) : (
                             <h2 style={{padding: '10px', color: '#d32f2f'}}>ESTUDIANTES PENDIENTES ({pendientes.length})</h2>
-                        </div>
-                    )}
+                        )}
+                    </div>
 
                     <div className="lists-container single-col">
-                        {activeTab === "pendientes" ? (
+                        {(activeTab === "pendientes" || userRole !== "admin") ? (
                             pendientes.length > 0 ? (
                                 pendientes.map(s => (
                                     <div key={s.rowId} className="student-card">
@@ -378,7 +372,13 @@ export const Home = () => {
                                         </div>
                                         {userRole === "admin" && (
                                             <div className="card-actions">
-                                                <button className="btn-action check" onClick={() => handleAction('mark_lunch', s.rowId)}>ALMORZAR ✅</button>
+                                                <button 
+                                                    className="btn-action check" 
+                                                    disabled={actionLoading === s.rowId}
+                                                    onClick={() => handleAction('mark_lunch', s.rowId)}
+                                                >
+                                                    {actionLoading === s.rowId ? "⌛..." : "ALMORZAR ✅"}
+                                                </button>
                                                 <button className="btn-action absent" onClick={() => {
                                                     const obs = prompt("Observación de Inasistencia:", s.OBSERVACION || "");
                                                     if(obs !== null) handleAction('mark_absent', s.rowId, { observacion: obs });
@@ -394,11 +394,16 @@ export const Home = () => {
                                     <div className="student-info">
                                         <span className="student-name">{s.NOMBRE}</span>
                                         <span className="student-meta">
-                                            {s.ESTADO_FINAL} {s.OBSERVACION ? `(${s.OBSERVACION})` : ""}
+                                            {s.ESTADO_FINAL || "LISTO"} {s.OBSERVACION ? `(${s.OBSERVACION})` : ""}
                                         </span>
                                     </div>
                                     <div className="card-actions">
                                         <button className="btn-action undo" onClick={() => handleAction('undo_lunch', s.rowId)}>↩️ Corregir</button>
+                                        <button className="btn-action absent" style={{background: '#ffebee', color: '#c62828'}} onClick={() => {
+                                            if(window.confirm(`¿Seguro que quieres eliminar a ${s.NOMBRE} definitivamente del Excel?`)) {
+                                                handleAction('delete', s.rowId);
+                                            }
+                                        }}>🗑️</button>
                                     </div>
                                 </div>
                             ))
@@ -406,7 +411,7 @@ export const Home = () => {
                     </div>
                 </div>
             )}
-            {loading && <div className="global-loader">Actualizando...</div>}
+            {loading && <div className="global-loader">Actualizando lista principal...</div>}
         </div>
     );
 };
