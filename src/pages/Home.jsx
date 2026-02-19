@@ -412,7 +412,7 @@ export const Home = () => {
                                 <div className="mailing-scroll" style={{maxHeight: '120px', background: '#fff9f9'}}>
                                     {extraStudents.length > 0 ? extraStudents.map(s => (
                                         <div key={s.rowId} className="mailing-item" style={{borderLeft: '4px solid #d32f2f'}}>
-                                            <span><strong>{s.NOMBRE}</strong> - ID: {s.ID}</span>
+                                            <span><strong>{s.NOMBRE}</strong> - ID: {s.GRADO}</span>
                                             </div>
                                     )) : <div style={{fontSize: '12px', padding: '10px', textAlign: 'center'}}>No hay nuevos estudiantes pendientes de añadir.</div>}
                                 </div>
