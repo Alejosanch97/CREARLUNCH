@@ -1,7 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
+import emailjs from '@emailjs/browser';
 import "../Styles/home.css"; 
 
 const API_URL = 'https://script.google.com/macros/s/AKfycbxD4jakTaR2OXuy8Wnl6Yp6Nw24d3fmb0cLeNOkbTYzb7dNyZ0ywteSwc4qt7_IdOWV/exec';
+
+// Configuración de EmailJS
+const EMAILJS_SERVICE_ID = "service_g7j97ao";
+const EMAILJS_TEMPLATE_ID = "template_d3eoo2p";
+const EMAILJS_PUBLIC_KEY = "Eg-szHpcZ5WDJPtoz"; 
 
 const BASE_EMOJIS = ["🐶", "🍎", "🚗", "🍕", "🌈", "😊", "🏀", "🏢", "👧", "🍦", "📚", "🎸", "🦋", "🐈", "🍟", "🌻", "🚀", "💎", "🧸", "🔒"];
 
@@ -23,13 +29,19 @@ export const Home = () => {
     const [showReport, setShowReport] = useState(false);
     const [actionLoading, setActionLoading] = useState(null); 
 
+    const [showEmailModal, setShowEmailModal] = useState(false);
+    const [selectedGradoEmail, setSelectedGradoEmail] = useState("");
+    const [selectedStudentEmail, setSelectedStudentEmail] = useState(null);
+    const [mailingList, setMailingList] = useState([]);
+    const [sendingEmails, setSendingEmails] = useState(false);
+
     const isSyncingRef = useRef(0);
 
     const [userRole, setUserRole] = useState("admin"); 
     const correctSequence = ["🏢", "👧", "😊", "🍕"]; 
     const logisticsSequence = ["🏢", "📚", "😊", "🍎"]; 
 
-    const [formData, setFormData] = useState({ id: '', grado: GRADOS_OPTIONS[0], nombre: '', observacion: '' });
+    const [formData, setFormData] = useState({ id: '', grado: GRADOS_OPTIONS[0], nombre: '', observacion: '', correo: '' });
 
     const getCategorizedReport = () => {
         const categories = [
@@ -75,10 +87,78 @@ export const Home = () => {
         return `${maxId + 1}A`;
     };
 
+    const getPriceByGrade = (grado) => {
+        const g = String(grado).toUpperCase();
+        const primaria = ["101", "201", "301", "401", "501", "PRIMERO", "SEGUNDO", "TERCERO", "CUARTO", "QUINTO", "PJ", "JA", "TR"];
+        const esPrimaria = primaria.some(p => g.includes(p));
+        return esPrimaria ? "12.500" : "13.000";
+    };
+
+    const addToMailingList = (studentObj = null) => {
+        const target = studentObj || selectedStudentEmail;
+        if (target) {
+            if (!mailingList.find(s => s.rowId === target.rowId)) {
+                setMailingList([...mailingList, target]);
+            }
+            if (!studentObj) setSelectedStudentEmail(null);
+        }
+    };
+
+    const sendEmails = async () => {
+        if (mailingList.length === 0) return;
+        setSendingEmails(true);
+
+        // Fecha formateada: 19/02/2026
+        const today = new Date().toLocaleDateString('es-CO', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric'
+        });
+
+        try {
+            for (const student of mailingList) {
+                // Validamos que el estudiante tenga correo para evitar errores 400
+                if (!student.CORREO || !student.CORREO.includes('@')) {
+                    console.warn(`Saltando a ${student.NOMBRE}: Correo inválido.`);
+                    continue;
+                }
+
+                const precio = getPriceByGrade(student.GRADO);
+
+                // Estas llaves deben coincidir EXACTO con los {{}} de tu HTML/Template
+                const templateParams = {
+                    to_email: student.CORREO.trim(),
+                    name: student.NOMBRE,
+                    time: today,
+                    message: `Le informamos que su hijo(a) almorzó el día de hoy. El valor a cancelar es de $${precio}.`
+                };
+
+                // Envío con inicialización explícita de la Public Key
+                await emailjs.send(
+                    EMAILJS_SERVICE_ID,
+                    EMAILJS_TEMPLATE_ID,
+                    templateParams,
+                    EMAILJS_PUBLIC_KEY
+                );
+
+                console.log(`✅ Correo enviado a: ${student.NOMBRE}`);
+            }
+
+            alert("¡Todos los correos han sido enviados con éxito!");
+            setMailingList([]);
+            setShowEmailModal(false);
+        } catch (error) {
+            console.error("Error detallado de EmailJS:", error);
+            alert(`Error al enviar: ${error.text || "Revisa la consola para más detalles"}`);
+        } finally {
+            setSendingEmails(false);
+        }
+    };
+
     useEffect(() => {
         if (view === "form") {
             const nextId = generateNextId(students);
-            setFormData(prev => ({ ...prev, id: nextId, grado: GRADOS_OPTIONS[0] }));
+            setFormData(prev => ({ ...prev, id: nextId, grado: GRADOS_OPTIONS[0], correo: '' }));
         }
     }, [view, students.length]);
 
@@ -131,7 +211,6 @@ export const Home = () => {
         isSyncingRef.current += 1;
         setPendingSyncCount(prev => prev + 1);
         
-        // Cambio visual inmediato
         setStudents(prevStudents => {
             if (action === 'delete') {
                 return prevStudents.filter(s => s.rowId !== rowId);
@@ -184,7 +263,8 @@ export const Home = () => {
             ID: currentForm.id, 
             GRADO: currentForm.grado, 
             NOMBRE: currentForm.nombre,
-            OBSERVACION: currentForm.observacion, 
+            OBSERVACION: currentForm.observacion,
+            CORREO: currentForm.correo || "", 
             "ESTADO FINAL": "", 
             "ESTADO INICIAL": "D"
         };
@@ -193,7 +273,7 @@ export const Home = () => {
         isSyncingRef.current += 1;
         setPendingSyncCount(prev => prev + 1);
         setView("list");
-        setFormData({ id: '', grado: GRADOS_OPTIONS[0], nombre: '', observacion: '' });
+        setFormData({ id: '', grado: GRADOS_OPTIONS[0], nombre: '', observacion: '', correo: '' });
 
         try {
             await fetch(API_URL, {
@@ -263,6 +343,12 @@ export const Home = () => {
         return ef === "ALMORZANDO" || ef === "INASISTENTE";
     });
 
+    // Filtro para detectar estudiantes con IDs alfanuméricos (Nuevos)
+    const extraStudents = students.filter(s => 
+        /[a-zA-Z]/.test(String(s.ID)) && 
+        !mailingList.find(m => m.rowId === s.rowId)
+    );
+
     return (
         <div className="app-wrapper">
             {pendingSyncCount > 0 && (
@@ -282,12 +368,83 @@ export const Home = () => {
                 {userRole === "admin" && (
                     <div className="header-actions">
                         <button className="btn-report" onClick={() => setShowReport(true)}>📊 REPORTE</button>
+                        <button className="btn-email-nav" onClick={() => setShowEmailModal(true)}>📧 CORREO</button>
                         <button className="btn-add-student" onClick={() => setView(view === "form" ? "list" : "form")}>
                             {view === "form" ? "⬅️ VOLVER" : "➕ ESTUDIANTE"}
                         </button>
                     </div>
                 )}
             </header>
+
+            {/* MODAL DE CORREOS CON LISTA DE NUEVOS */}
+            {showEmailModal && (
+                <div className="modal-overlay" onClick={() => setShowEmailModal(false)}>
+                    <div className="modal-content email-modal" onClick={e => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3>📧 Notificaciones a Padres</h3>
+                            <button className="close-modal" onClick={() => setShowEmailModal(false)}>×</button>
+                        </div>
+                        <div className="modal-body">
+                            <div className="email-selectors">
+                                <label className="form-label">Filtrar por Grado:</label>
+                                <select className="form-select" onChange={(e) => setSelectedGradoEmail(e.target.value)}>
+                                    <option value="">Seleccione un grado</option>
+                                    {GRADOS_OPTIONS.map(g => <option key={g} value={g}>{g}</option>)}
+                                </select>
+
+                                <label className="form-label">Seleccionar Estudiante:</label>
+                                <select 
+                                    className="form-select"
+                                    disabled={!selectedGradoEmail}
+                                    onChange={(e) => setSelectedStudentEmail(students.find(s => s.rowId == e.target.value))}
+                                >
+                                    <option value="">-- Buscar en la lista --</option>
+                                    {students
+                                        .filter(s => s.GRADO === selectedGradoEmail)
+                                        .map(s => <option key={s.rowId} value={s.rowId}>{s.NOMBRE} (ID: {s.ID})</option>)}
+                                </select>
+                                <button className="btn-submit" style={{marginTop: '10px'}} onClick={() => addToMailingList()}>Añadir a lista de envío</button>
+                            </div>
+
+                            {/* NUEVA SECCIÓN: LISTA DE ESTUDIANTES NUEVOS (ID con letra) */}
+                            <div className="mailing-list-area" style={{marginTop: '20px', borderTop: '2px solid #eee', paddingTop: '15px'}}>
+                                <h4 style={{color: '#d32f2f'}}>✨ Sugeridos para añadir (Nuevos/Extras)</h4>
+                                <div className="mailing-scroll" style={{maxHeight: '120px', background: '#fff9f9'}}>
+                                    {extraStudents.length > 0 ? extraStudents.map(s => (
+                                        <div key={s.rowId} className="mailing-item" style={{borderLeft: '4px solid #d32f2f'}}>
+                                            <span><strong>{s.NOMBRE}</strong> - ID: {s.ID}</span>
+                                            </div>
+                                    )) : <div style={{fontSize: '12px', padding: '10px', textAlign: 'center'}}>No hay nuevos estudiantes pendientes de añadir.</div>}
+                                </div>
+                            </div>
+
+                            <div className="mailing-list-area">
+                                <h4>Lista de envío final ({mailingList.length})</h4>
+                                <div className="mailing-scroll">
+                                    {mailingList.map(s => (
+                                        <div key={s.rowId} className="mailing-item">
+                                            <div style={{display: 'flex', flexDirection: 'column'}}>
+                                                <span><strong>{s.NOMBRE}</strong> ({s.GRADO})</span>
+                                                <small style={{color: '#666'}}>ID: {s.ID} | {s.CORREO || "Sin correo"}</small>
+                                            </div>
+                                            <button className="btn-remove" onClick={() => setMailingList(mailingList.filter(m => m.rowId !== s.rowId))}>❌</button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="modal-footer">
+                            <button 
+                                className="btn-send-all" 
+                                onClick={sendEmails} 
+                                disabled={mailingList.length === 0 || sendingEmails}
+                            >
+                                {sendingEmails ? "Enviando..." : "📧 ENVIAR TODOS LOS CORREOS"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {showReport && (
                 <div className="modal-overlay" onClick={() => setShowReport(false)}>
@@ -367,7 +524,7 @@ export const Home = () => {
                                     <div key={s.rowId} className="student-card">
                                         <div className="student-info">
                                             <span className="student-name">{s.NOMBRE}</span>
-                                            <span className="student-meta">{s.GRADO}</span>
+                                            <span className="student-meta">{s.GRADO} | ID: {s.ID}</span>
                                             {s.OBSERVACION && <div className="student-obs">📝 {s.OBSERVACION}</div>}
                                         </div>
                                         {userRole === "admin" && (
